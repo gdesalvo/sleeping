@@ -145,8 +145,9 @@ def create_experts(K, want_random,one_d,R):
         for erp in range(K):
             hyp_experts.append(np.random.normal(0, 1, one_d) )
 
-
+        
         rej_experts = list(np.linspace(0.1, math.sqrt(one_d), R))
+        print rej_experts
         experts=[]
         for hyp in hyp_experts:
             for rej in rej_experts:
@@ -916,6 +917,74 @@ def ucbn(c, alpha, experts, dat, return_rounds, one_d,update_matrix,R):
 
     return loss_alg_at_return_rounds,count_rej_at_return_rounds,save_arms,edges_at_return_rounds
 
+
+def ucbnewh(c, alpha, experts, dat, return_rounds, one_d,update_matrix,R):
+    save_arms=[]
+    loss_alg_at_return_rounds=[]
+    count_rej_at_return_rounds=[]
+    edges_at_return_rounds=[]
+    enum_return_rounds=0
+
+    K = len(experts)
+    T = len(dat)
+
+    expert_avg = [0.0]*K
+    expert_pulls = [0.0] * K 
+    loss_alg = 0
+    count_rej=0
+
+    total_edges=np.count_nonzero(update_matrix)
+    for t in range(T):
+
+        
+        region_id = get_region_id(dat[t][0],one_d,R)
+        # Extract index of awake experts. 
+        awake_experts=[]
+        for ext in range(len(experts)):
+            if region_id != ext%R:
+                awake_experts.append(ext)
+
+
+
+        # Get arm with smallest LCB
+        lcb_list=[]
+        for i in awake_experts:
+            lcb_list.append([max(expert_avg[i] - lcb_bound(t, expert_pulls[i], alpha), 0.0),i ])
+        lcb_list=np.array(lcb_list)
+        cur_min=min(lcb_list[:,0]) # smallest LCB value
+        min_index=[int(lcb_list[i,1]) for i in range(len(lcb_list[:,1])) if lcb_list[i,0] == cur_min] # index of experts with smallest LCB value
+
+        print cur_min
+
+        if c < cur_min:
+            best_arm = -1
+            count_rej+=1
+            loss_alg += c
+            
+        else:
+            best_arm = random.choice(min_index)
+            
+            expert_label = exp_label(dat[t][0], experts[best_arm],one_d,R)
+            loss_alg += rej_loss(dat[t][1], expert_label, c) 
+
+            for i in range(K):
+                if i in awake_experts:
+           
+                    expert_pulls[i] += 1
+                    inv_pull = 1.0 / expert_pulls[i]
+                    expert_avg[i] = rej_loss(dat[t][1], exp_label(dat[t][0], experts[i],one_d,R), c)  * inv_pull + (1 - inv_pull) * expert_avg[i]
+        
+        save_arms.append(best_arm)        
+        if enum_return_rounds < len(return_rounds) and t+1==return_rounds[enum_return_rounds]:
+            loss_alg_at_return_rounds.append(loss_alg/float(t+1))
+            count_rej_at_return_rounds.append(count_rej/float(t+1))
+            edges_at_return_rounds.append(total_edges)
+            enum_return_rounds+=1
+
+    return loss_alg_at_return_rounds,count_rej_at_return_rounds,save_arms,edges_at_return_rounds
+
+
+
 def ucbb(c, alpha, experts, dat, return_rounds, one_d,update_matrix,R):
     save_arms=[]
     loss_alg_at_return_rounds=[]
@@ -1002,19 +1071,16 @@ def ucbb(c, alpha, experts, dat, return_rounds, one_d,update_matrix,R):
     return loss_alg_at_return_rounds,count_rej_at_return_rounds,save_arms,edges_at_return_rounds
 
 
-def get_region_id(data,regional_experts,one_d,K,R):
-    if one_d==0:
-        interval= np.linspace(-1.0, 1.0, K)
-        return np.where(np.sort(np.append(interval,data))==data)[0][0]-1
-    elif one_d>=1:
-        rej_experts = list(np.linspace(0.0, 0.99, R))
-        for rej in rej_experts:
-            if LA.norm(data)< rej:
-                return rej_experts.index(rej)-1
-                break
-            elif LA.norm(data) >= rej_experts[-1]:
-                return R-1
-                break
+def get_region_id(data,one_d,R):
+    rej_experts = list(np.linspace(0.1, math.sqrt(one_d), R))
+
+    for rej in rej_experts:
+        if LA.norm(data)< rej:
+            return rej_experts.index(rej)
+            break
+#        elif LA.norm(data) >= rej_experts[-1]:
+#            return R
+#            break
 
 
 def ucbh(c, alpha, experts, dat, return_rounds, one_d,update_matrix,K,regional_experts,R):
@@ -1214,8 +1280,8 @@ def ucbd(c, alpha, experts, dat,return_rounds, one_d,update_matrix,R):
 ############# ############# ############# ############# #############  PLOTTING ############# ############# ############# ############# ############# 
 def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
 #NEED TO IMRPOVE THIS PLOTTING FUNCTN 
-    NUM_AVG=4
-    T_MAX=10000##700
+    NUM_AVG=2
+    T_MAX=10000
     avg_regret=[]
     avg_counts=[]
     avg_losses=[]
@@ -1243,13 +1309,13 @@ def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
                 loss2,countrej2,savearms2,edges2=ucbb(c,alpha,experts,data,x,ONE_D,update_matrix,R) #returns values of all needed roudns
                 loss3,countrej3,savearms3,edges3=ucb(c,alpha,experts,data,x,ONE_D,update_matrix,R) #returns values of all needed roudns
                 loss4,countrej4,savearms4,edges4=ftl(c,alpha,experts,data,x,ONE_D,update_matrix,R) #returns values of all needed roudns
-#                loss5,countrej5,savearms5,edges5=ftl(c,alpha,experts,data,x,ONE_D,update_matrix,R) #returns values of all needed roudns
+                loss5,countrej5,savearms5,edges5=ucbnewh(c,alpha,experts,data,x,ONE_D,update_matrix,R) #returns values of all needed roudns
 
 
                 expert_loss.append(loss_experts)
-                loss.append([loss1,loss2,loss3,loss4])#,loss5])#,loss6,loss7])
-                count.append([countrej1,countrej2,countrej3,countrej4])#,countrej5])#,countrej6,countrej7])
-                edges.append([edges1,edges2,edges3,edges4])#,edges5])
+                loss.append([loss1,loss2,loss3,loss4,loss5])#,loss6,loss7])
+                count.append([countrej1,countrej2,countrej3,countrej4,countrej5])#,countrej6,countrej7])
+                edges.append([edges1,edges2,edges3,edges4,edges5])
 
             loss=np.mean(np.array(loss),axis=0)
             count=np.mean(np.array(count),axis=0)
@@ -1281,25 +1347,25 @@ def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
     text_file.write('; regret UCBB:'+str(avg_regret[1])+'; std UCBB:'+str(std_regret[1]))
     text_file.write('; regret UCB:'+str(avg_regret[2])+'; std UCB:'+str(std_regret[2]))
     text_file.write('; regret FTL:'+str(avg_regret[3])+'; std FTL:'+str(std_regret[3]))
-#    text_file.write('; regret FTL:'+str(avg_regret[4])+'; std FTL:'+str(std_regret[4]))
+    text_file.write('; regret UCBH:'+str(avg_regret[4])+'; std UCBH:'+str(std_regret[4]))
 
     text_file.write('; losses UCBN:'+str(avg_losses[0])+'; std UCBN:'+str(std_losses[0]))
     text_file.write('; losses UCBB:'+str(avg_losses[1])+'; std UCBB:'+str(std_losses[1]))
     text_file.write('; losses UCB:'+str(avg_losses[2])+'; std UCB:'+str(std_losses[2]))
     text_file.write('; losses FTL:'+str(avg_losses[3])+'; std FLT:'+str(std_losses[3]))
-#    text_file.write('; losses FTL:'+str(avg_losses[4])+'; std FTL:'+str(std_losses[4]))
+    text_file.write('; losses UCBH:'+str(avg_losses[4])+'; std UCBH:'+str(std_losses[4]))
 
     text_file.write('; counts UCBN:'+str(avg_counts[0])+'; std UCBN:'+str(std_counts[0]))
     text_file.write('; counts UCBB:'+str(avg_counts[1])+'; std UCBB:'+str(std_counts[1]))
     text_file.write('; counts UCB:'+str(avg_counts[2])+'; std UCB:'+str(std_counts[2]))
     text_file.write('; counts FTL:'+str(avg_counts[3])+'; std FTL:'+str(std_counts[3]))
-#    text_file.write('; counts FTL:'+str(avg_counts[4])+'; std FTL:'+str(std_counts[4]))
+    text_file.write('; counts UCBH:'+str(avg_counts[4])+'; std UCBH:'+str(std_counts[4]))
 
     text_file.write('; edges UCBN:'+str(avg_edges[0])+'; std UCBN:'+str(std_edges[0]))
     text_file.write('; edges UCBB:'+str(avg_edges[1])+'; std UCBB:'+str(std_edges[1]))
-#    text_file.write('; edges UCB:'+str(avg_edges[2])+'; std UCB:'+str(std_edges[2]))
-#    text_file.write('; edges FTL:'+str(avg_edges[3])+'; std FLT:'+str(std_edges[3]))
-#    text_file.write('; edges FTL:'+str(avg_edges[4])+'; std FTL:'+str(std_edges[4]))
+    text_file.write('; edges UCB:'+str(avg_edges[2])+'; std UCB:'+str(std_edges[2]))
+    text_file.write('; edges FTL:'+str(avg_edges[3])+'; std FLT:'+str(std_edges[3]))
+    text_file.write('; edges UCBH:'+str(avg_edges[4])+'; std UCBH:'+str(std_edges[4]))
 
     fig, ax = plt.subplots()
     plt.tight_layout()
@@ -1312,7 +1378,7 @@ def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
     ax.errorbar(x, avg_regret[1], yerr=std_regret[1],fmt='-',color='limegreen', label='UCB-B')
     ax.errorbar(x, avg_regret[2], yerr=std_regret[2],fmt='r-',label='UCB')
     ax.errorbar(x, avg_regret[3], yerr=std_regret[3],fmt='b-',label='FLT')
-#    ax.errorbar(x, avg_regret[4], yerr=std_regret[4],fmt='m-',label='FLT')
+    ax.errorbar(x, avg_regret[4], yerr=std_regret[4],fmt='m-',label='UCBH')
     plt.xlabel('Rounds')
     plt.ylabel('Regret')
     plt.title('Regret for c = '+str(c),y=1.02)
@@ -1327,7 +1393,7 @@ def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
     ax.errorbar(x, avg_losses[1], yerr=std_losses[1],fmt='-',color='limegreen', label='UCB-B')
     ax.errorbar(x, avg_losses[2], yerr=std_losses[2],fmt='r-', label='UCB')
     ax.errorbar(x, avg_losses[3], yerr=std_losses[3],fmt='b-', label='FTL')
-#    ax.errorbar(x, avg_losses[4], yerr=std_losses[4],fmt='m-', label='FTL')
+    ax.errorbar(x, avg_losses[4], yerr=std_losses[4],fmt='m-', label='UCBH')
     plt.xlabel('Rounds')
     plt.ylabel(' Losses')
     plt.title('Losses for c = '+str(c),y=1.02)
@@ -1340,7 +1406,7 @@ def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
     ax.errorbar(x, avg_counts[1], yerr=std_counts[1],fmt='-',color='limegreen', label='UCB-B')
     ax.errorbar(x, avg_counts[2], yerr=std_counts[2],fmt='r-', label='UCB')
     ax.errorbar(x, avg_counts[3], yerr=std_counts[3],fmt='b-', label='FTL')
-#    ax.errorbar(x, avg_counts[4], yerr=std_counts[4],fmt='m-', label='FLT')
+    ax.errorbar(x, avg_counts[4], yerr=std_counts[4],fmt='m-', label='UCBH')
     plt.xlabel('Rounds')
     plt.ylabel('Fraction Abstained')
     plt.title('Fraction Abstained for c = '+str(c))
@@ -1353,7 +1419,7 @@ def plotting(c,alpha,K,text_file,ONE_D,TYPE_DATA,R):
     ax.errorbar(x, avg_edges[1], yerr=std_edges[1],fmt='-',color='limegreen', label='UCB-B')
     ax.errorbar(x, avg_edges[2], yerr=std_edges[2],fmt='r-', label='UCB')
     ax.errorbar(x, avg_edges[3], yerr=std_edges[3],fmt='b-', label='FTL')
-#    ax.errorbar(x, avg_edges[4], yerr=std_edges[4],fmt='m-', label='FTL')
+    ax.errorbar(x, avg_edges[4], yerr=std_edges[4],fmt='m-', label='UCBH')
     plt.xlabel('Rounds')
     plt.ylabel('Number of Edges')
     plt.title('Edges for c = '+str(c))
@@ -1383,7 +1449,7 @@ if __name__ == "__main__":
 #    c_values=[0.1,0.2,0.3]
     data=[8,8,8,8,8,8,22,22,22,22,22,22,54,54,54,54,54,54,68,68,68,68,68,68,25,25,25,25,25,25,14,14,14,14,14,14,28,28,28,28,28,28]
     c_values=[0.1,0.2,0.3,0.001,0.05,0.9]
-
+    print val
 
     K=100
     R=20
